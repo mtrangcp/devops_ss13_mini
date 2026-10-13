@@ -34,10 +34,11 @@ public class PostController {
     @GetMapping
     PageView<PostView> search(@RequestParam(defaultValue = "") String keyword,
                               @RequestParam(required = false) Long categoryId,
+                              @RequestParam(required = false) ItemType itemType,
                               @RequestParam(defaultValue = "0") int page,
                               @RequestParam(defaultValue = "12") int size,
                               Principal principal) {
-        return service.search(keyword, categoryId, page, size, principal);
+        return service.search(keyword, categoryId, itemType, page, size, principal);
     }
 
     @GetMapping("/{id}")

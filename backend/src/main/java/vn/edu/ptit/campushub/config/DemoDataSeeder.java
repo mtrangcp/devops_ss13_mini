@@ -1,5 +1,6 @@
 package vn.edu.ptit.campushub.config;
 
+import java.time.Instant;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -7,6 +8,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import vn.edu.ptit.campushub.category.Category;
 import vn.edu.ptit.campushub.category.CategoryRepository;
+import vn.edu.ptit.campushub.post.ItemType;
 import vn.edu.ptit.campushub.post.Post;
 import vn.edu.ptit.campushub.post.PostRepository;
 import vn.edu.ptit.campushub.user.Role;
@@ -46,7 +48,7 @@ public class DemoDataSeeder implements ApplicationRunner {
                     "Các câu lạc bộ sẽ gặp gỡ sinh viên mới tại sân A2 vào chiều thứ Sáu.", events, admin));
             posts.save(new Post("Tìm ví màu đen gần thư viện",
                     "Mình làm rơi một chiếc ví màu đen vào sáng nay. Bạn nào nhặt được vui lòng bình luận giúp mình.",
-                    lost, student));
+                    lost, student, ItemType.LOST, "Sân A2 gần cổng thư viện", "0912345678", Instant.now().minusSeconds(3600)));
         }
     }
 
