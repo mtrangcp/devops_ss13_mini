@@ -22,6 +22,17 @@ function getNowForDateTimeLocal() {
   return new Date(now.getTime() - offset).toISOString().slice(0, 16)
 }
 
+function ReturnRequestStatusBadge({ status }) {
+  const map = {
+    PENDING: { label: 'Đang chờ duyệt', className: 'pending' },
+    APPROVED: { label: 'Đã chấp nhận', className: 'approved' },
+    REJECTED: { label: 'Đã từ chối', className: 'rejected' },
+    COMPLETED: { label: 'Đã trao trả', className: 'completed' },
+  }
+  const item = map[status] || { label: status, className: '' }
+  return <span className={`tag ${item.className}`}>{item.label}</span>
+}
+
 function App() {
   const [user, setUser] = useState(null)
   const [categories, setCategories] = useState([])
@@ -30,21 +41,18 @@ function App() {
   const [filters, setFilters] = useState({ keyword: '', categoryId: '', itemType: '' })
   const [dialog, setDialog] = useState(null)
   const [notice, setNotice] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [view, setView] = useState('posts') // 'posts' | 'my-requests'
 
   const loadPosts = useCallback(async () => {
     const query = new URLSearchParams()
     if (filters.keyword) query.set('keyword', filters.keyword)
     if (filters.categoryId) query.set('categoryId', filters.categoryId)
     if (filters.itemType) query.set('itemType', filters.itemType)
-    setLoading(true)
     try {
       const page = await api(`/posts?${query}`)
       setPosts(page.content)
     } catch (error) {
       setNotice(error.message)
-    } finally {
-      setLoading(false)
     }
   }, [filters])
 
@@ -67,7 +75,9 @@ function App() {
 
   async function openPost(id) {
     try {
-      setSelectedPost(await api(`/posts/${id}`))
+      const postData = await api(`/posts/${id}`)
+      setSelectedPost(postData)
+      setView('posts')
     } catch (error) {
       setNotice(error.message)
     }
@@ -77,6 +87,7 @@ function App() {
     clearCredentials()
     setUser(null)
     setSelectedPost(null)
+    setView('posts')
     setNotice('Đã đăng xuất')
   }
 
@@ -88,7 +99,7 @@ function App() {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <button className="brand" onClick={() => setSelectedPost(null)}>
+        <button className="brand" onClick={() => { setSelectedPost(null); setView('posts') }}>
           <span className="brand-mark">C</span>
           <span>Campus Hub</span>
         </button>
@@ -96,6 +107,12 @@ function App() {
           {user ? (
             <>
               <span className="user-name">Xin chào, {user.displayName}</span>
+              <button
+                className={`button ${view === 'my-requests' ? 'primary' : 'ghost'}`}
+                onClick={() => { setSelectedPost(null); setView(view === 'my-requests' ? 'posts' : 'my-requests') }}
+              >
+                {view === 'my-requests' ? 'Bảng tin' : 'Yêu cầu của tôi'}
+              </button>
               <button className="button ghost" onClick={() => setDialog('post')}>Đăng bài</button>
               <button className="button secondary" onClick={logout}>Đăng xuất</button>
             </>
@@ -107,10 +124,19 @@ function App() {
 
       <main>
         {notice && <div className="notice" onClick={() => setNotice('')}>{notice}</div>}
-        {selectedPost ? (
-          <PostDetail post={selectedPost} user={user} onBack={() => setSelectedPost(null)}
-            onChanged={refreshSelected} onDeleted={() => { setSelectedPost(null); loadPosts() }}
-            setNotice={setNotice} />
+
+        {view === 'my-requests' ? (
+          <MyReturnRequests onOpenPost={openPost} onBack={() => setView('posts')} />
+        ) : selectedPost ? (
+          <PostDetail
+            post={selectedPost}
+            user={user}
+            onBack={() => setSelectedPost(null)}
+            onChanged={refreshSelected}
+            onDeleted={() => { setSelectedPost(null); loadPosts() }}
+            setNotice={setNotice}
+            onRequestLogin={() => { setNotice('Vui lòng đăng nhập để gửi yêu cầu nhận lại đồ'); setDialog('login') }}
+          />
         ) : (
           <>
             <section className="hero">
@@ -141,9 +167,7 @@ function App() {
             </section>
 
             <section className="post-grid">
-              {loading ? (
-                <div className="empty">Đang tải danh sách bài đăng...</div>
-              ) : posts.length > 0 ? (
+              {posts.length > 0 ? (
                 posts.map((post) => <PostCard key={post.id} post={post} onOpen={openPost} />)
               ) : (
                 <div className="empty">Chưa có bài đăng phù hợp.</div>
@@ -195,15 +219,22 @@ function PostCard({ post, onOpen }) {
   )
 }
 
-function PostDetail({ post, user, onBack, onChanged, onDeleted, setNotice }) {
+function PostDetail({ post, user, onBack, onChanged, onDeleted, setNotice, onRequestLogin }) {
   const [comment, setComment] = useState('')
   const [submittingComment, setSubmittingComment] = useState(false)
-  const canManage = user && (user.id === post.author.id || user.role === 'ADMIN')
+  const [showReturnModal, setShowReturnModal] = useState(false)
+
+  const isAuthor = user && user.id === post.author.id
+  const isAdmin = user && user.role === 'ADMIN'
+  const canManage = isAuthor || isAdmin
 
   const isLost = post.itemType === 'LOST'
   const isFound = post.itemType === 'FOUND'
   const isResolved = post.status === 'RESOLVED'
   const hasLostFoundInfo = post.itemType || post.location || post.contactInfo || post.occurredAt
+
+  // Điều kiện để hiển thị nút yêu cầu nhận đồ: bài FOUND, đang PUBLISHED, và không phải chính tác giả
+  const canRequestReturn = isFound && post.status === 'PUBLISHED' && !isAuthor
 
   async function act(action, success) {
     try {
@@ -269,14 +300,30 @@ function PostDetail({ post, user, onBack, onChanged, onDeleted, setNotice }) {
             onClick={() => act(() => api(`/posts/${post.id}/reaction`, { method: 'POST' }), 'Đã cập nhật quan tâm')}>
             ♥ {post.reactionCount} quan tâm
           </button>
+
+          {/* Nút yêu cầu nhận lại đồ */}
+          {canRequestReturn && (
+            user ? (
+              <button className="button primary" onClick={() => setShowReturnModal(true)}>
+                Yêu cầu nhận lại đồ
+              </button>
+            ) : (
+              <button className="button ghost" onClick={onRequestLogin}>
+                Đăng nhập để yêu cầu nhận đồ
+              </button>
+            )
+          )}
+
           {canManage && post.status !== 'RESOLVED' && <button className="button secondary"
             onClick={() => act(() => api(`/posts/${post.id}/status`, {
               method: 'PATCH', body: JSON.stringify({ status: 'RESOLVED' }),
             }), 'Đã đánh dấu hoàn tất')}>Đánh dấu hoàn tất</button>}
-          {user?.role === 'ADMIN' && post.status !== 'HIDDEN' && <button className="button secondary"
+
+          {isAdmin && post.status !== 'HIDDEN' && <button className="button secondary"
             onClick={() => act(() => api(`/posts/${post.id}/status`, {
               method: 'PATCH', body: JSON.stringify({ status: 'HIDDEN' }),
             }), 'Đã ẩn bài đăng')}>Ẩn bài</button>}
+
           {canManage && <button className="button danger" onClick={async () => {
             if (!window.confirm('Xóa bài đăng này?')) return
             try {
@@ -289,6 +336,11 @@ function PostDetail({ post, user, onBack, onChanged, onDeleted, setNotice }) {
           }}>Xóa bài</button>}
         </div>
       </div>
+
+      {/* Khu vực quản lý yêu cầu nhận đồ dành cho chủ bài hoặc ADMIN */}
+      {canManage && isFound && (
+        <ReturnRequestsManager post={post} setNotice={setNotice} onPostUpdated={onChanged} />
+      )}
 
       <div className="comments">
         <h2>Bình luận ({post.commentCount})</h2>
@@ -310,6 +362,245 @@ function PostDetail({ post, user, onBack, onChanged, onDeleted, setNotice }) {
           </div>)}
         </div>
       </div>
+
+      {showReturnModal && (
+        <ReturnRequestModal
+          post={post}
+          onClose={() => setShowReturnModal(false)}
+          onSuccess={() => {
+            setShowReturnModal(false)
+            setNotice('Đã gửi yêu cầu nhận lại đồ thành công!')
+            onChanged()
+          }}
+        />
+      )}
+    </section>
+  )
+}
+
+function ReturnRequestsManager({ post, setNotice, onPostUpdated }) {
+  const [requests, setRequests] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [processingId, setProcessingId] = useState(null)
+
+  const reloadRequests = useCallback(async () => {
+    setLoading(true)
+    try {
+      const data = await api(`/posts/${post.id}/return-requests`)
+      setRequests(data)
+    } catch (err) {
+      setNotice(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }, [post.id, setNotice])
+
+  useEffect(() => {
+    let active = true
+    api(`/posts/${post.id}/return-requests`)
+      .then((data) => { if (active) setRequests(data) })
+      .catch((err) => { if (active) setNotice(err.message) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [post.id, setNotice])
+
+  async function updateStatus(requestId, status, successText) {
+    setProcessingId(requestId)
+    try {
+      await api(`/return-requests/${requestId}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status }),
+      })
+      setNotice(successText)
+      await reloadRequests()
+      await onPostUpdated()
+    } catch (err) {
+      setNotice(err.message)
+    } finally {
+      setProcessingId(null)
+    }
+  }
+
+  return (
+    <section className="return-requests-section">
+      <h2>Yêu cầu nhận đồ ({requests.length})</h2>
+      {loading ? (
+        <div className="empty">Đang tải danh sách yêu cầu...</div>
+      ) : requests.length > 0 ? (
+        <div className="requests-list">
+          {requests.map((req) => (
+            <div className="request-card" key={req.id}>
+              <div className="request-card-header">
+                <div>
+                  <strong>{req.requester.displayName}</strong>
+                  <span className="muted"> (@{req.requester.username})</span>
+                  <span className="request-date">· {formatDate(req.createdAt)}</span>
+                </div>
+                <ReturnRequestStatusBadge status={req.status} />
+              </div>
+              <p className="request-msg">{req.verificationMessage}</p>
+              <div className="request-actions">
+                {req.status === 'PENDING' && (
+                  <>
+                    <button
+                      className="button primary small"
+                      disabled={processingId === req.id}
+                      onClick={() => updateStatus(req.id, 'APPROVED', 'Đã chấp nhận yêu cầu')}
+                    >
+                      {processingId === req.id ? 'Đang xử lý...' : 'Chấp nhận'}
+                    </button>
+                    <button
+                      className="button danger small"
+                      disabled={processingId === req.id}
+                      onClick={() => updateStatus(req.id, 'REJECTED', 'Đã từ chối yêu cầu')}
+                    >
+                      {processingId === req.id ? 'Đang xử lý...' : 'Từ chối'}
+                    </button>
+                  </>
+                )}
+                {req.status === 'APPROVED' && (
+                  <button
+                    className="button primary small"
+                    disabled={processingId === req.id}
+                    onClick={() => updateStatus(req.id, 'COMPLETED', 'Đã xác nhận trao trả đồ thành công!')}
+                  >
+                    {processingId === req.id ? 'Đang xử lý...' : 'Xác nhận đã trao trả'}
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="empty">Chưa có ai gửi yêu cầu nhận lại đồ này.</div>
+      )}
+    </section>
+  )
+}
+
+function ReturnRequestModal({ post, onClose, onSuccess }) {
+  const [message, setMessage] = useState('')
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function handleSubmit(event) {
+    event.preventDefault()
+    setError('')
+    const trimmed = message.trim()
+    if (trimmed.length < 10) {
+      setError('Lời nhắn xác minh cần tối thiểu 10 ký tự')
+      return
+    }
+    if (trimmed.length > 2000) {
+      setError('Lời nhắn xác minh tối đa 2000 ký tự')
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      await api(`/posts/${post.id}/return-requests`, {
+        method: 'POST',
+        body: JSON.stringify({ verificationMessage: trimmed }),
+      })
+      onSuccess()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Dialog title="Yêu cầu nhận lại đồ" onClose={onClose}>
+      <form className="form" onSubmit={handleSubmit}>
+        {error && <p className="form-error">{error}</p>}
+        <p className="muted" style={{ margin: 0 }}>
+          Bài đăng: <strong>{post.title}</strong>
+        </p>
+        <label>
+          Lời nhắn xác minh sở hữu
+          <textarea
+            required
+            rows="6"
+            maxLength="2000"
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            disabled={submitting}
+            placeholder="Mô tả chi tiết đặc điểm nhận dạng của món đồ (màu sắc, vết xước, nội dung bên trong...) để người nhặt xác minh..."
+          />
+          <span className="form-hint">Tối thiểu 10 ký tự, tối đa 2000 ký tự. Thông tin này chỉ người đăng tin mới xem được.</span>
+        </label>
+        <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '10px' }}>
+          <button type="button" className="button secondary" onClick={onClose} disabled={submitting}>
+            Hủy
+          </button>
+          <button type="submit" className="button primary" disabled={submitting}>
+            {submitting ? 'Đang gửi...' : 'Gửi yêu cầu'}
+          </button>
+        </div>
+      </form>
+    </Dialog>
+  )
+}
+
+function MyReturnRequests({ onOpenPost, onBack }) {
+  const [requests, setRequests] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let active = true
+    api('/return-requests/mine')
+      .then((data) => { if (active) setRequests(data) })
+      .catch((err) => { if (active) setError(err.message) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [])
+
+  return (
+    <section className="my-requests-view">
+      <button className="back" onClick={onBack}>← Quay lại bảng tin</button>
+      <div className="my-requests-header">
+        <div>
+          <h1>Yêu cầu nhận lại đồ của tôi</h1>
+          <span>Danh sách các yêu cầu bạn đã gửi tới người nhặt được đồ</span>
+        </div>
+        <strong>{requests.length} yêu cầu</strong>
+      </div>
+
+      {error && <p className="form-error">{error}</p>}
+
+      {loading ? (
+        <div className="empty">Đang tải danh sách yêu cầu...</div>
+      ) : requests.length > 0 ? (
+        requests.map((req) => (
+          <div className="my-request-card" key={req.id}>
+            <div className="my-request-top">
+              <div>
+                <button className="my-request-title" onClick={() => onOpenPost(req.postId)}>
+                  {req.post?.title || `Bài đăng #${req.postId}`}
+                </button>
+                <div className="my-request-meta" style={{ marginTop: '6px' }}>
+                  {req.post?.location && <span>📍 {req.post.location}</span>}
+                  <span>Gửi ngày: {formatDate(req.createdAt)}</span>
+                </div>
+              </div>
+              <ReturnRequestStatusBadge status={req.status} />
+            </div>
+
+            <div style={{ background: '#fafbfa', padding: '12px 14px', borderRadius: '10px', border: '1px solid #edf0ed' }}>
+              <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--muted)', marginBottom: '4px' }}>
+                LỜI NHẮN XÁC MINH CỦA BẠN:
+              </div>
+              <p style={{ margin: 0, lineHeight: 1.6, color: '#17201c', whiteSpace: 'pre-wrap' }}>
+                {req.verificationMessage}
+              </p>
+            </div>
+          </div>
+        ))
+      ) : (
+        <div className="empty">Bạn chưa gửi yêu cầu nhận lại đồ nào.</div>
+      )}
     </section>
   )
 }
