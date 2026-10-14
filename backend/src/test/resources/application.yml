@@ -11,5 +11,7 @@ spring:
       ddl-auto: create-drop
 
 app:
+  demo:
+    enabled: true
   cors:
     allowed-origins: http://localhost:5173

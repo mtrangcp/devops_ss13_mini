@@ -1,0 +1,10 @@
+# Review-only production overlay. HTTPS terminates at a host reverse proxy.
+# Keep using the same Compose project name and mysql_data volume across releases.
+services:
+  backend:
+    image: campus-hub-backend:${RELEASE_ID:?Set an immutable RELEASE_ID}
+    environment:
+      CORS_ALLOWED_ORIGINS: ${PUBLIC_ORIGIN:?Set the HTTPS public origin}
+      APP_DEMO_ENABLED: "false"
+  frontend:
+    image: campus-hub-frontend:${RELEASE_ID:?Set an immutable RELEASE_ID}

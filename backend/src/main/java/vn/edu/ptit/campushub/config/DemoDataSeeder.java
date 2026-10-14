@@ -3,6 +3,7 @@ package vn.edu.ptit.campushub.config;
 import java.time.Instant;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -16,6 +17,7 @@ import vn.edu.ptit.campushub.user.User;
 import vn.edu.ptit.campushub.user.UserRepository;
 
 @Component
+@ConditionalOnProperty(name = "app.demo.enabled", havingValue = "true")
 public class DemoDataSeeder implements ApplicationRunner {
     private final UserRepository users;
     private final CategoryRepository categories;

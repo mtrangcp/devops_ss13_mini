@@ -1,3 +1,6 @@
-anode_modules
+node_modules
 dist
 .idea
+.env
+.env.*
+*.log

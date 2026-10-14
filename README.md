@@ -1,5 +1,28 @@
 # Campus Hub Base
 
+## Docker local (Lost & Found)
+
+Copy `.env.example` to `.env` and replace both password placeholders with separate random passwords. Do not commit `.env`. From the repository root:
+
+```powershell
+docker compose config --quiet
+docker compose up -d --build
+docker compose ps
+```
+
+Open http://localhost:8088. Only Nginx is published, bound to localhost. Nginx forwards `/api/` to the internal backend, which connects to MySQL 8.4.8. Flyway runs V1–V3; Hibernate validates the resulting schema. Database files persist in the `mysql_data` named volume. Changing `.env` passwords does not rotate users in an existing database volume.
+
+```powershell
+docker compose logs --tail=100 backend
+docker compose restart
+docker compose stop
+docker compose up -d
+```
+
+Do not remove the database volume. Demo seeding is disabled by default and in Compose; register a new account through the UI. For the original development demo only, explicitly set `APP_DEMO_ENABLED=true`. Tests enable the seeder independently. Public deployment requires a separate HTTPS configuration and approval; this Compose setup is local only.
+
+Flyway 11.7.2 currently warns that MySQL 8.4 is newer than its tested compatibility range. Local MySQL 8.4.8 migration and API checks succeeded, but the warning remains; do not downgrade an initialized MySQL volume to an older server version. The backend waits for database connectivity during restarts. Frontend development dependencies currently have two high-severity npm audit findings; no dependency upgrade is included in this Docker change.
+
 Campus Hub là dự án nền cho Mini Project Session 13. Ứng dụng cung cấp một không gian chung để sinh viên đăng sự kiện, tìm đồ thất lạc, hỏi đáp, trao đổi đồ dùng và tìm nhóm.
 
 Dự án được giữ ở mức nhỏ để dễ đọc và sửa đổi, nhưng đã có đủ luồng giao diện, API, xác thực, migration và kiểm thử.
